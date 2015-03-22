@@ -11,7 +11,8 @@ import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.IO as TLIO
 import qualified Data.Attoparsec.Text as P
 import System.Environment (getArgs)
-import System.Directory (doesFileExist)
+import System.Directory (doesFileExist, getCurrentDirectory)
+import System.Console.GetOpt
 import qualified Filesystem.Path.CurrentOS as Path
 import qualified Data.Graph.Inductive.Graph as G
 import Data.Graph.Inductive.PatriciaTree (Gr)
@@ -19,7 +20,7 @@ import qualified Data.GraphViz as GraphViz
 import qualified Data.GraphViz.Commands as GraphViz.Commands
 import qualified Data.GraphViz.Attributes as GraphViz.Attributes
 
-import Debug.Trace
+-- import Debug.Trace
 
 data IncludeLine =
     SystemHeaderIncludeLine T.Text
@@ -75,7 +76,8 @@ includeGraphFromFilename' graph@(IncludeGraph adjlist) fp =
             let new_graph = IncludeGraph $ (pathToSourceFileNode fp, nodes):adjlist in
                 includeGraphFromNodes' new_graph nodes
         else
-            putStrLn ("Warning: " ++ encoded_fp ++ " not found") >> return graph
+            --putStrLn ("Warning: " ++ encoded_fp ++ " not found") >> return graph
+            putStrLn ("Warning: " ++ encoded_fp ++ " not found, adding anyway") >> return (IncludeGraph $ (pathToSourceFileNode fp, []):adjlist)
 
 includeGraphFromNodes' :: IncludeGraph -> [IncludeNode] -> IO IncludeGraph
 includeGraphFromNodes' graph [] = return graph
@@ -84,8 +86,8 @@ includeGraphFromNodes' graph@(IncludeGraph adjlist) (n:ns) =
             case (L.lookup n adjlist, n) of
                 (Just _, _) -> return graph
                 (Nothing, SourceFileNode fp) -> includeGraphFromFilename' graph fp
-                --(Nothing, SystemHeaderNode _) -> return $ IncludeGraph adjlist -- $ IncludeGraph $ (n, []):graph_edges
-                (Nothing, SystemHeaderNode _) -> return $ IncludeGraph $ (n, []):adjlist
+                (Nothing, SystemHeaderNode _) -> return $ IncludeGraph adjlist -- $ IncludeGraph $ (n, []):graph_edges
+                --(Nothing, SystemHeaderNode _) -> return $ IncludeGraph $ (n, []):adjlist
     in action >>= (flip includeGraphFromNodes' ns)
 
 includeGraphFromNodes :: [IncludeNode] -> IO IncludeGraph
@@ -93,7 +95,10 @@ includeGraphFromNodes = liftM normalisePaths . includeGraphFromNodes' (IncludeGr
 
 normalisePathInNode :: Path.FilePath -> IncludeNode -> IncludeNode
 normalisePathInNode prefix node@(SystemHeaderNode _) = node
-normalisePathInNode prefix node@(SourceFileNode fp) = SourceFileNode $ fromJust $ Path.stripPrefix prefix fp
+normalisePathInNode prefix node@(SourceFileNode fp) =
+    case Path.stripPrefix prefix fp of
+        Nothing -> node ---trace (show (prefix, fp, node)) node
+        Just x -> SourceFileNode x
 
 filePathFromNode (SystemHeaderNode _) = Nothing
 filePathFromNode (SourceFileNode fp) = Just fp
