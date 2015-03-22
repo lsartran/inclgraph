@@ -123,8 +123,28 @@ includeGraphToDot graph =
     where
         params = GraphViz.nonClusteredParams { GraphViz.fmtNode = formatNode }
 
+data CmdlineFlag = Help | OutputFile String | IncludeDir String deriving (Show, Eq)
+
+options :: [OptDescr CmdlineFlag]
+options =
+    [
+        Option  ['h']   ["help"]    (NoArg Help)                "Display help message",
+        Option  ['I']   []          (ReqArg IncludeDir "DIR")   "Add DIR to include search path",
+        Option  ['o']   ["output"]  (OptArg outp "FILE")        "Write output to FILE"
+    ]
+
+outp = OutputFile . fromMaybe "output.pdf"
+
+generateGraphVizFromFilenames :: [String] -> IO ()
+generateGraphVizFromFilenames fnames = do
+    inclgraph <- (includeGraphFromNodes . map (pathToSourceFileNode . Path.decodeString)) fnames
+    void $ GraphViz.Commands.runGraphvizCommand GraphViz.Commands.Dot (includeGraphToDot $ normalisePaths inclgraph) GraphViz.Commands.Pdf "output.pdf"
+
 main = do
-    inclgraph <- (includeGraphFromNodes . map (pathToSourceFileNode . Path.decodeString)) =<< getArgs
-    GraphViz.Commands.runGraphvizCommand GraphViz.Commands.Dot (includeGraphToDot $ normalisePaths inclgraph) GraphViz.Commands.Pdf "output.pdf"
+    args <- getArgs
+    case getOpt Permute options args of
+        (o,n,[]) -> generateGraphVizFromFilenames n
+        (_,_,errs) -> ioError (userError $ concat errs ++ usageInfo header options)
+    where header = "Usage: inclgraph [OPTIONS...] files"
 
 
