@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+import Prelude hiding (FilePath)
 import Control.Applicative
 import Control.Monad
 import Data.Maybe
@@ -22,22 +23,26 @@ import qualified Data.GraphViz.Attributes as GraphViz.Attributes
 
 -- import Debug.Trace
 
+--------------------------------------------------------------------------------
+-- PARSING
+--------------------------------------------------------------------------------
+
+type FilePath = Path.FilePath
+
 data IncludeLine =
     SystemHeaderIncludeLine T.Text
     | SourceFileIncludeLine T.Text
-    | NotAnIncludeLine ()
+    | NotAIncludeLine ()
     deriving (Show, Eq)
 
-data IncludeNode =
-    SystemHeaderNode T.Text
-    | SourceFileNode Path.FilePath
-    deriving (Show, Eq, Ord)
+data Include =
+    SystemHeaderInclude FilePath
+    | SourceFileInclude FilePath
+    deriving (Show, Eq)
 
-newtype IncludeGraph = IncludeGraph [(IncludeNode, [IncludeNode])]
-    deriving (Show)
 
-notAnIncludeLine :: P.Parser IncludeLine
-notAnIncludeLine = liftM NotAnIncludeLine $ P.skipWhile ((/=) '\n') <* (P.endOfLine <|> P.endOfInput)
+notAIncludeLine :: P.Parser IncludeLine
+notAIncludeLine = liftM NotAIncludeLine $ P.skipWhile ((/=) '\n') <* (P.endOfLine <|> P.endOfInput)
 
 lineParser :: P.Parser IncludeLine
 lineParser = fileIncludeLine <|> headerIncludeLine
@@ -46,26 +51,44 @@ lineParser = fileIncludeLine <|> headerIncludeLine
             includeLine c1 c2 = P.string "#include" *> P.skipSpace *> (P.char c1 *> P.takeWhile1 (P.notInClass (c2 : "\n")) <* P.char c2) <* (P.endOfLine <|> P.endOfInput)
 
 fileParser :: P.Parser [IncludeLine]
-fileParser = P.manyTill (lineParser <|> notAnIncludeLine) P.endOfInput
+fileParser = P.manyTill (lineParser <|> notAIncludeLine) P.endOfInput
 
-pathToSourceFileNode :: Path.FilePath -> IncludeNode
-pathToSourceFileNode fp =
-    SourceFileNode $ Path.collapse fp
+includeLines :: IncludeLine -> Maybe Include
+includeLines r =
+    case r of
+        SystemHeaderIncludeLine t -> Just $ SystemHeaderInclude $ Path.fromText $ t
+        SourceFileIncludeLine t -> Just $ SourceFileInclude $ Path.fromText $ t -- Path.collapse $ pathToSourceFileNode (Path.append (Path.directory fp) (Path.fromText t))
+        NotAIncludeLine () -> Nothing
 
-includeLineToNode :: Path.FilePath -> IncludeLine -> Maybe IncludeNode
-includeLineToNode fp l =
-    case l of
-        SystemHeaderIncludeLine t -> Just $ SystemHeaderNode $ t
-        SourceFileIncludeLine t -> Just $ pathToSourceFileNode (Path.append (Path.directory fp) (Path.fromText t))
-        NotAnIncludeLine () -> Nothing
-
-includeNodesFromFileContents :: Path.FilePath -> T.Text -> [IncludeNode]
-includeNodesFromFileContents fp a =
-    case P.parseOnly (fileParser) a of
+includeLinesFromContents :: T.Text -> [Include]
+includeLinesFromContents content =
+    case P.parseOnly (fileParser) content of
         Left s -> error s
-        Right l -> catMaybes $ map (includeLineToNode fp) l
+        Right l -> catMaybes $ map includeLines l
 
-includeGraphFromFilename' :: IncludeGraph -> Path.FilePath -> IO IncludeGraph
+includeLinesFromFilePath :: FilePath -> IO [Include]
+includeLinesFromFilePath fp =
+    fmap includeLinesFromContents $ TIO.readFile $ Path.encodeString $ fp
+
+--------------------------------------------------------------------------------
+-- GRAPH BUILDING
+--------------------------------------------------------------------------------
+
+newtype IncludeNode = IncludeNode (FilePath, [FilePath])
+    deriving (Show, Eq, Ord)
+
+newtype IncludeGraph = IncludeGraph [IncludeNode]
+    deriving (Show, Eq, Ord)
+
+emptyIncludeGraph = IncludeGraph []
+
+{-
+
+addSourceFileToIncludeGraph :: IncludeGraph -> [Path.FilePath] -> Path.FilePath -> IO IncludeGraph
+addSourceFileToIncludeGraph graph searchpaths filepath =
+    let includelines = 
+
+includeGraphFromFilename' :: IncludeGraph -> [Path.FilePath] -> Path.FilePath -> IO IncludeGraph
 includeGraphFromFilename' graph@(IncludeGraph adjlist) fp =
     let encoded_fp = Path.encodeString fp in do
         file_exists <- doesFileExist encoded_fp
@@ -109,6 +132,10 @@ normalisePaths (IncludeGraph adjlist) =
         norm = normalisePathInNode fps in
     IncludeGraph [(norm a,[norm b | b <- l]) | (a,l) <- adjlist]
 
+--------------------------------------------------------------------------------
+-- GraphViz
+--------------------------------------------------------------------------------
+
 includeGraphToVerticesEdges :: IncludeGraph -> Gr IncludeNode () --([G.LNode IncludeNode], [G.UEdge])
 includeGraphToVerticesEdges (IncludeGraph l) =
     let lgraph_tmp = [(i,n,children) | (i,(n,children)) <- zip [1..] l]
@@ -127,6 +154,10 @@ includeGraphToDot graph =
     GraphViz.graphToDot params $ includeGraphToVerticesEdges graph
     where
         params = GraphViz.nonClusteredParams { GraphViz.fmtNode = formatNode }
+
+--------------------------------------------------------------------------------
+-- command line interface
+--------------------------------------------------------------------------------
 
 data CmdlineFlag = Help | OutputFile String | IncludeDir String deriving (Show, Eq)
 
@@ -152,4 +183,4 @@ main = do
         (_,_,errs) -> ioError (userError $ concat errs ++ usageInfo header options)
     where header = "Usage: inclgraph [OPTIONS...] files"
 
-
+-}
