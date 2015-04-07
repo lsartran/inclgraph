@@ -12,8 +12,8 @@ This is a tool to extract the include graph of a C/C++ codebase (i.e. which sour
 
 ## Example
 
-The include graph of msdosfs support in FreeBSD 10.1 looks like this:
+The include graph of msdosfs support in the FreeBSD 10.1 kernel can be generated using:
 
 `./inclgraph ~/code/usr/src/sys/fs/msdosfs/*.c -I ~/code/usr/src/sys`
 
-![Include graph of msdosfs](https://github.com/lsartran/inclgraph/blob/master/example/freebsd-msdosfs.pdf)
+and looks like this: https://github.com/lsartran/inclgraph/blob/master/example/freebsd-msdosfs.pdf
