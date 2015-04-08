@@ -192,8 +192,8 @@ options :: [OptDescr CmdlineFlag]
 options =
     [
         Option  ['h']   ["help"]    (NoArg Help)                "Display help message",
-        Option  ['I']   []          (ReqArg IncludeDir "DIR")   "Add DIR to include search path",
-        Option  ['o']   ["output"]  (OptArg outp "FILE")        "Write output to FILE"
+        Option  ['I']   []          (ReqArg IncludeDir "DIR")   "Add DIR to include search path"
+        -- Option  ['o']   ["output"]  (OptArg outp "FILE")        "Write output to FILE"
     ]
 
 outp = OutputFile . fromMaybe "output.pdf"
@@ -210,8 +210,11 @@ getIncludes ((_):opts) = (getIncludes opts)
 main = do
     args <- getArgs
     case getOpt Permute options args of
+        ([],[],[]) -> putStrLn $ usageInfo header options
         (o,n,[]) -> do
-            --putStrLn $ show o
-            generateGraphVizFromFilenames (getIncludes o) n
+            --putStrLn $ show (o,n)
+            if elem Help o
+            then putStrLn $ usageInfo header options
+            else generateGraphVizFromFilenames (getIncludes o) n
         (_,_,errs) -> ioError (userError $ concat errs ++ usageInfo header options)
     where header = "Usage: inclgraph [OPTIONS...] files"
