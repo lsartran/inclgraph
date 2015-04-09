@@ -186,35 +186,40 @@ includeGraphToDot graph =
 -- command line interface
 --------------------------------------------------------------------------------
 
-data CmdlineFlag = Help | OutputFile String | IncludeDir String deriving (Show, Eq)
+data Options = Options {
+    optHelp :: Bool,
+    optOutput :: String,
+    optIncludeDirs :: [String]
+} deriving Show
 
-options :: [OptDescr CmdlineFlag]
+defaultOptions = Options {
+    optHelp = False,
+    optOutput = "output.pdf",
+    optIncludeDirs = []
+}
+
+options :: [OptDescr (Options -> Options)]
 options =
     [
-        Option  ['h']   ["help"]    (NoArg Help)                "Display help message",
-        Option  ['I']   []          (ReqArg IncludeDir "DIR")   "Add DIR to include search path"
-        -- Option  ['o']   ["output"]  (OptArg outp "FILE")        "Write output to FILE"
+        Option  ['h']   ["help"]    (NoArg (\opts -> opts { optHelp = True }))                                          "Display help message",
+        Option  ['I']   []          (ReqArg (\d opts -> opts { optIncludeDirs = optIncludeDirs opts ++ [d] }) "DIR")    "Add DIR to include search path",
+        Option  ['o']   ["output"]  (ReqArg (\f opts -> opts { optOutput = f }) "FILE")                                 "Write output to FILE"
     ]
 
-outp = OutputFile . fromMaybe "output.pdf"
-
-generateGraphVizFromFilenames :: [String] -> [String] -> IO ()
-generateGraphVizFromFilenames includeDirs fnames = do
+generateGraphVizFromFilenames :: [String] -> [String] -> String -> IO ()
+generateGraphVizFromFilenames includeDirs fnames outputfname = do
     inclgraph <- buildGraphFromFiles (map Path.decodeString includeDirs) (map Path.decodeString fnames)
-    void $ GraphViz.Commands.runGraphvizCommand GraphViz.Commands.Dot (includeGraphToDot $ includeGraphToVerticesEdges inclgraph) GraphViz.Commands.Pdf "output.pdf"
-
-getIncludes [] = []
-getIncludes ((IncludeDir dir):opts) = dir:(getIncludes opts)
-getIncludes ((_):opts) = (getIncludes opts)
+    void $ GraphViz.Commands.runGraphvizCommand GraphViz.Commands.Dot (includeGraphToDot $ includeGraphToVerticesEdges inclgraph) GraphViz.Commands.Pdf outputfname
 
 main = do
     args <- getArgs
     case getOpt Permute options args of
         ([],[],[]) -> putStrLn $ usageInfo header options
         (o,n,[]) -> do
-            --putStrLn $ show (o,n)
-            if elem Help o
+            opts <- return $ foldl (flip id) defaultOptions o
+            -- putStrLn $ show (opts,n)
+            if optHelp opts
             then putStrLn $ usageInfo header options
-            else generateGraphVizFromFilenames (getIncludes o) n
+            else generateGraphVizFromFilenames (optIncludeDirs opts) n (optOutput opts)
         (_,_,errs) -> ioError (userError $ concat errs ++ usageInfo header options)
     where header = "Usage: inclgraph [OPTIONS...] files"
