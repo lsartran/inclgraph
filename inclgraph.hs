@@ -35,12 +35,14 @@ type FilePath = Path.FilePath
 data IncludeLine =
     SystemHeaderIncludeLine T.Text
     | SourceFileIncludeLine T.Text
+    | PragmaOnceLine ()
     | NotAIncludeLine ()
     deriving (Show, Eq)
 
 data Include =
     SystemHeaderInclude FilePath
     | SourceFileInclude FilePath
+    | PragmaOnce
     deriving (Show, Eq)
 
 filePathFromInclude (SystemHeaderInclude fp) = fp
@@ -49,6 +51,9 @@ filePathFromInclude (SourceFileInclude fp) = fp
 notAIncludeLine :: P.Parser IncludeLine
 notAIncludeLine = liftM NotAIncludeLine $ P.skipWhile ((/=) '\n') <* (P.endOfLine <|> P.endOfInput)
 
+pragmaOnceLine :: P.Parser IncludeLine
+pragmaOnceLine = liftM PragmaOnceLine $ void $ P.string "#pragma once" <* (P.endOfLine <|> P.endOfInput)
+
 lineParser :: P.Parser IncludeLine
 lineParser = fileIncludeLine <|> headerIncludeLine
     where   fileIncludeLine = liftM SourceFileIncludeLine $ includeLine '"' '"'
@@ -56,13 +61,14 @@ lineParser = fileIncludeLine <|> headerIncludeLine
             includeLine c1 c2 = P.string "#include" *> P.skipSpace *> (P.char c1 *> P.takeWhile1 (P.notInClass (c2 : "\n")) <* P.char c2) <* (P.endOfLine <|> P.endOfInput)
 
 fileParser :: P.Parser [IncludeLine]
-fileParser = P.manyTill (lineParser <|> notAIncludeLine) P.endOfInput
+fileParser = P.manyTill (lineParser <|> pragmaOnceLine <|> notAIncludeLine) P.endOfInput
 
 includeLines :: IncludeLine -> Maybe Include
 includeLines r =
     case r of
         SystemHeaderIncludeLine t -> Just $ SystemHeaderInclude $ Path.fromText $ t
         SourceFileIncludeLine t -> Just $ SourceFileInclude $ Path.fromText $ t -- Path.collapse $ pathToSourceFileNode (Path.append (Path.directory fp) (Path.fromText t))
+        PragmaOnceLine () -> Just PragmaOnce
         NotAIncludeLine () -> Nothing
 
 includeLinesFromContents :: T.Text -> [Include]
@@ -77,8 +83,11 @@ includeLinesFromContents content =
 
 -- Here, fp must point to a file that exists
 includeLinesFromFilePath :: FilePath -> IO [Include]
-includeLinesFromFilePath fp =
-    fmap includeLinesFromContents $ TIO.readFile $ Path.encodeString $ fp
+includeLinesFromFilePath fp = do
+    lines <- fmap includeLinesFromContents $ TIO.readFile $ Path.encodeString $ fp
+    if notElem PragmaOnce lines
+    then (putStrLn $ "Warning: no #pragma once in file " ++ (Path.encodeString fp)) >> (return $ filter ((/=) PragmaOnce) lines)
+    else (putStrLn $ "Info: #pragma once found in file " ++ (Path.encodeString fp)) >> (return $ filter ((/=) PragmaOnce) lines)
 {-
         where
             f name = catchIOError (g name) (\e -> if isDoesNotExistError e then return Nothing else ioError e) where
